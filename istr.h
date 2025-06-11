@@ -2,111 +2,101 @@
 #define INTERNED_STRING_IMPL
 
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+// --- Configuration ---
 
-#define ISTR_BYTES_IN_HASH 1
-#define ISTR_BYTES_IN_LEN 1
-#define ISTR_ROM_TEXT_COMPRESSION 0
+#define BYTES_IN_HASH         2
+#define BYTES_IN_LEN          1
+#define ROM_TEXT_COMPRESSION  0
+#define ENABLE_DEBUG          1
 
-#define ISTR_ENABLE_DEBUG 1
+#define PLAT_MALLOC           malloc
+#define PLAT_REALLOC          realloc 
+#define PLAT_PRINTF           printf
 
-#define ISTR_PLAT_MALLOC malloc
-#define ISTR_PLAT_REALLOC realloc 
-#define ISTR_PLAT_PRINTF printf
-//#define ISTR_NO_ISTR //when this macro is defined, static istrs are not bundled
-//#define NO_ISTR
+// #define NO_ISTR // Disable bundling static ISTRs
+// #define NO_ISTR       // Alternative flag for same purpose
 
- // Initial number of entries for qstr pool, set so that the first dynamically
- // allocated pool is twice this size.  The value here must be <= ISTRnumber_of.
- #define ISTR_ALLOC_ENTRIES_INIT (10)
+// Initial size of ISTR pool (first alloc will be twice this)
+#define ALLOC_ENTRIES_INIT    (10)
 
 
-// See qstrdefs.h for a list of qstr's that are available as constants.
-// Reference them as MP_QSTR_xxxx.
-//
-// Note: it would be possible to define MP_QSTR_xxx as qstr_from_str("xxx")
-// for qstrs that are referenced this way, but you don't want to have them in ROM.
-
-// first entry in enum will be MP_QSTRnull=0, which indicates invalid/no qstr
+// First entry is ISTRnull = 0
 enum {
-    #ifndef NO_QSTR
-#define QDEF0(id, hash, len, str) id,
-#define QDEF1(id, hash, len, str)
-    #include "genhdr/qstrdefs.generated.h"
-#undef QDEF0
-#undef QDEF1
-    #endif
-    ISTRnumber_of_static,
-    ISTRstart_of_main = ISTRnumber_of_static - 1, // unused but shifts the enum counter back one
+#ifndef NO_ISTR
+    #define QDEF(id, hash, len, str) id,
+    #include "istrdefs.generated.h"
+    #undef QDEF
+#endif
 
-    #ifndef NO_QSTR
-#define QDEF0(id, hash, len, str)
-#define QDEF1(id, hash, len, str) id,
-    #include "genhdr/qstrdefs.generated.h"
-#undef QDEF0
-#undef QDEF1
-    #endif
-    ISTRnumber_of, // no underscore so it can't clash with any of the above
+    ISTRnumber_of_static,   //not ISTR_ to avoid clashes with user defined literals
+    ISTRstart_of_main = ISTRnumber_of_static - 1, // Keeps counter aligned
+
+    ISTRnumber_of  // Final count of ISTRs
 };
 
-typedef size_t qstr;
-typedef uint8_t byte;
-typedef uint16_t qstr_short_t;
+typedef size_t   istr;
+typedef uint8_t  byte;
+typedef uint16_t istr_short_t;
 
-#if ISTR_BYTES_IN_HASH == 0
-#elif ISTR_BYTES_IN_HASH == 1
-typedef uint8_t qstr_hash_t;
-#elif ISTR_BYTES_IN_HASH == 2
-typedef uint16_t qstr_hash_t;
+#if BYTES_IN_HASH == 1
+    typedef uint8_t istr_hash_t;
+#elif BYTES_IN_HASH == 2
+    typedef uint16_t istr_hash_t;
+#elif BYTES_IN_HASH == 0
+    // No hash field
 #else
-#error unimplemented qstr hash decoding
+    #error "Unsupported BYTES_IN_HASH"
 #endif
 
-#if ISTR_BYTES_IN_LEN == 1
-typedef uint8_t qstr_len_t;
-#elif ISTR_BYTES_IN_LEN == 2
-typedef uint16_t qstr_len_t;
+#if BYTES_IN_LEN == 1
+    typedef uint8_t istr_len_t;
+#elif BYTES_IN_LEN == 2
+    typedef uint16_t istr_len_t;
 #else
-#error unimplemented qstr length decoding
+    #error "Unsupported BYTES_IN_LEN"
 #endif
 
-typedef struct _qstr_pool_t {
-    const struct _qstr_pool_t *prev;
+typedef struct _istr_pool_t {
+    const struct _istr_pool_t *prev;
     size_t total_prev_len : (8 * sizeof(size_t) - 1);
-    size_t is_sorted : 1;
+    size_t is_sorted      : 1;
     size_t alloc;
     size_t len;
-    #if ISTR_BYTES_IN_HASH
-    qstr_hash_t *hashes;
-    #endif
-    qstr_len_t *lengths;
-    const char *qstrs[];
-} qstr_pool_t;
 
-extern qstr_pool_t *pool_head; 
-
-#define QSTR_TOTAL() ((last_pool)->total_prev_len + (last_pool)->len)
-
-void qstr_init(void);
-size_t qstr_compute_hash(const byte *data, size_t len);
-qstr qstr_find_strn(const char *str, size_t str_len); // returns ISTRnull if not found
-qstr qstr_from_str(const char *str);
-qstr qstr_from_strn(const char *str, size_t len);
-
-qstr qstr_from_strn_static(const char *str, size_t len);
-
-size_t qstr_hash(qstr q);
-const char *qstr_str(qstr q);
-size_t qstr_len(qstr q);
-const byte *qstr_data(qstr q, size_t *len);
-
-#if ISTR_ENABLE_DEBUG
-void qstr_pool_info(size_t *n_pool, size_t *n_qstr, size_t *n_str_data_bytes, size_t *n_total_bytes);
-void qstr_dump_data(void);
+#if BYTES_IN_HASH
+    istr_hash_t *hashes;
 #endif
 
-#if ISTR_ROM_TEXT_COMPRESSION
+    istr_len_t *lengths;
+    const char *istrs[];  // Actual strings
+} istr_pool_t;
+
+extern istr_pool_t *pool_head;
+
+#define TOTAL() ((pool_head)->total_prev_len + (pool_head)->len)
+
+void   istr_init(void);
+istr   istr_from_str(const char *str);
+istr   istr_from_strn(const char *str, size_t len);
+istr   istr_find_strn(const char *str, size_t str_len);  // Returns ISTRnull if not found
+istr   istr_from_strn_static(const char *str, size_t len);
+
+const char *istr_str(istr q);
+const byte *istr_data(istr q, size_t *len);
+size_t      istr_len(istr q);
+size_t      istr_hash(istr q);
+
+#if ENABLE_DEBUG
+void istr_pool_info(size_t *n_pool, size_t *n_istr, size_t *n_str_data_bytes, size_t *n_total_bytes);
+void istr_dump_data(void);
+#endif
+
+#if ROM_TEXT_COMPRESSION
 void mp_decompress_rom_string(byte *dst, const mp_rom_error_text_t src);
-#define ISTR_ROM_TEXT_COMPRESSION(s) (*(byte *)(s) == 0xff)
+#define IS_COMPRESSED(s) (*(byte *)(s) == 0xff)
 #endif
 
 #endif // INTERNED_STRING_IMPL

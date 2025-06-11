@@ -6,110 +6,98 @@
  #include <assert.h>
  #include <string.h>
  #include <stdio.h>
- 
+ #include <stdbool.h>
+
  #include "istr.h"
-
-
- #if ISTR_ENABLE_DEBUG
- #define DEBUG_printf DEBUG_printf
- #else 
- #define DEBUG_printf(...) (void)0
+ 
+ // Debug loggin
+ #if ENABLE_DEBUG
+     #define DEBUG_printf printf
+ #else
+     #define DEBUG_printf(...) (void)0
  #endif
  
-#if ISTR_BYTES_IN_HASH
- #define Q_HASH_MASK ((1 << (8 * ISTR_BYTES_IN_HASH)) - 1)
-#else
- #define Q_HASH_MASK (0xffff)
-#endif
+ // Hash mask
+ #if BYTES_IN_HASH
+     #define Q_HASH_MASK ((1 << (8 * BYTES_IN_HASH)) - 1)
+ #else
+     #define Q_HASH_MASK (0xffff)
+ #endif
  
-//TODO: implement mutexs for entering critical section
-#define ISTR_ENTER() 
-#define ISTR_EXIT() 
+ // Critical section stubs
+ #define ENTER()
+ #define EXIT()
  
-  // A qstr is an index into the qstr pool.
- // The data for a qstr is \0 terminated (so they can be printed using printf)
+ // Pool state
  typedef struct {
-    char *qstr_last_chunk;      // Current chunk for string storage
-    size_t qstr_last_alloc;     // Total allocated size of current chunk
-    size_t qstr_last_used;      // Bytes used in current chunk
-} pool_state_t;
-
-static pool_state_t pool_state = {0};
-qstr_pool_t *pool_head = NULL;  
-
-
- // this must match the equivalent function in makeqstrdata.py
- // djb2 algorithm; see http://www.cse.yorku.ca/~oz/hash.html
- size_t qstr_compute_hash(const byte *data, size_t len) {
+     char   *istr_last_chunk;
+     size_t  istr_last_alloc;
+     size_t  istr_last_used;
+ } pool_state_t;
+ 
+ static pool_state_t pool_state = {0};
+ istr_pool_t *pool_head = NULL;
+ 
+ // djb2 algorithm variant; see http://www.cse.yorku.ca/~oz/hash.html
+  // this must match the equivalent function in makeistrdata.py
+ size_t istr_compute_hash(const byte *data, size_t len) {
      size_t hash = 5381;
-     for (const byte *top = data + len; data < top; data++) {
-         hash = ((hash << 5) + hash) ^ (*data); // hash * 33 ^ data
+     const byte *end = data + len;
+     while (data < end) {
+         hash = ((hash << 5) + hash) ^ *data++;
      }
      hash &= Q_HASH_MASK;
-     // Make sure that valid hash is never zero, zero means "hash not computed"
-     if (hash == 0) {
-         hash++;
-     }
-     return hash;
+     return (hash == 0) ? 1 : hash;
  }
  
- //static pools are constructed at compile time and name *_0, *_1 etc
- #if ISTR_BYTES_IN_HASH
- const qstr_hash_t istr_const_hashes_static_0[] = {
-     #ifndef NO_QSTR
- #define QDEF0(id, hash, len, str) hash,
- #define QDEF1(id, hash, len, str)
-     #include "genhdr/qstrdefs.generated.h"
- #undef QDEF0
- #undef QDEF1
-     #endif
+ #if BYTES_IN_HASH
+ const istr_hash_t istr_const_hashes_static_0[] = {
+ #ifndef NO_ISTR
+     #define QDEF(id, hash, len, str) hash,
+     #include "istrdefs.generated.h"
+     #undef QDEF
+ #endif
  };
- #endif 
-
- const qstr_len_t istr_const_lens_static_0[] = {
-    #ifndef NO_QSTR
-#define QDEF0(id, hash, len, str) len,
-#define QDEF1(id, hash, len, str)
-    #include "genhdr/qstrdefs.generated.h"
-#undef QDEF0
-#undef QDEF1
-    #endif
-};
-
-const qstr_pool_t istr_const_pool_static_0 = {
-    NULL,               // no previous pool
-    0,                  // no previous pool
-    true,              // is_sorted
-    ISTR_ALLOC_ENTRIES_INIT,
-    ISTRnumber_of_static,   // corresponds to number of strings in array just below
-    #if ISTR_BYTES_IN_HASH
-    (qstr_hash_t *)istr_const_hashes_static_0,
-    #endif
-    (qstr_len_t *)istr_const_lens_static_0,
-    {
-        #ifndef NO_QSTR
-#define QDEF0(id, hash, len, str) str,
-#define QDEF1(id, hash, len, str)
-        #include "genhdr/qstrdefs.generated.h"
-#undef QDEF0
-#undef QDEF1
-        #endif
-    },
-}; 
+ #endif
  
-#define CONST_POOL istr_const_pool_static_0
+ const istr_len_t istr_const_lens_static_0[] = {
+ #ifndef NO_ISTR
+     #define QDEF(id, hash, len, str) len,
+     #include "istrdefs.generated.h"
+     #undef QDEF
+ #endif
+ };
  
- void qstr_init(void) {
-     pool_head = (qstr_pool_t *)&CONST_POOL;
-     pool_state.qstr_last_chunk = NULL; 
-
+ const istr_pool_t istr_const_pool_static_0 = {
+     .prev = NULL,
+     .total_prev_len = 0,
+     .is_sorted = true,
+     .alloc = ALLOC_ENTRIES_INIT,
+     .len = ISTRnumber_of_static,
+ #if BYTES_IN_HASH
+     .hashes = (istr_hash_t *)istr_const_hashes_static_0,
+ #endif
+     .lengths = (istr_len_t *)istr_const_lens_static_0,
+     .istrs = {
+ #ifndef NO_ISTR
+         #define QDEF(id, hash, len, str) str,
+         #include "istrdefs.generated.h"
+         #undef QDEF
+ #endif
+     },
+ };
+ 
+ #define CONST_POOL istr_const_pool_static_0
+ 
+ // --- api implementation ---
+ 
+ void istr_init(void) {
+     pool_head = (istr_pool_t *)&CONST_POOL;
+     pool_state.istr_last_chunk = NULL;
  }
  
- //returns pool where qstr if found
- static const qstr_pool_t *find_qstr(qstr *q) {
-     // search pool for this qstr
-     // total_prev_len==0 in the final pool, so the loop will always terminate
-     const qstr_pool_t *pool = pool_head;
+ static const istr_pool_t *find_istr(istr *q) {
+     const istr_pool_t *pool = pool_head;
      while (*q < pool->total_prev_len) {
          pool = pool->prev;
      }
@@ -118,260 +106,233 @@ const qstr_pool_t istr_const_pool_static_0 = {
      return pool;
  }
  
- //returns the qstr id of the newly added string
- static qstr qstr_add(size_t len, const char *q_ptr) {
-    ISTR_ENTER();
-     #if ISTR_BYTES_IN_HASH
-     size_t hash = qstr_compute_hash((const byte *)q_ptr, len);
-     DEBUG_printf("QSTR: add hash=%d len=%d data=%.*s\n", hash, len, len, q_ptr);
-     #else
-     DEBUG_printf("QSTR: add len=%d data=%.*s\n", len, len, q_ptr);
-     #endif
+ static istr istr_add(size_t len, const char *q_ptr) {
+     ENTER();
  
-     // make sure we have room in the pool for a new qstr
+ #if BYTES_IN_HASH
+     size_t hash = istr_compute_hash((const byte *)q_ptr, len);
+     DEBUG_printf("ISTR: add hash=%zu len=%zu data=%.*s\n", hash, len, (int)len, q_ptr);
+ #else
+     DEBUG_printf("ISTR: add len=%zu data=%.*s\n", len, (int)len, q_ptr);
+ #endif
+ 
      if (pool_head->len >= pool_head->alloc) {
          size_t new_alloc = pool_head->alloc * 2;
-         size_t pool_size = sizeof(qstr_pool_t)
-             + (sizeof(const char *)
-                 #if ISTR_BYTES_IN_HASH
-                 + sizeof(qstr_hash_t)
-                 #endif
-                 + sizeof(qstr_len_t)) * new_alloc;
-
-         qstr_pool_t *pool = (qstr_pool_t *)ISTR_PLAT_MALLOC(pool_size);
-         if (pool == NULL) {
-             // Keep qstr_last_chunk consistent with qstr_pool_t: qstr_last_chunk is not scanned
-             // at garbage collection since it's reachable from a qstr_pool_t.  And the caller of
-             // this function expects q_ptr to be stored in a qstr_pool_t so it can be reached
-             // by the collector.  If qstr_pool_t allocation failed, qstr_last_chunk needs to be
-             // NULL'd.  Otherwise it may become a dangling pointer at the next garbage collection.
-             pool_state.qstr_last_chunk = NULL; 
-             ISTR_EXIT();
-             return ISTRnull; 
+         size_t pool_size = sizeof(istr_pool_t)
+             + (sizeof(const char *) + sizeof(istr_len_t)
+ #if BYTES_IN_HASH
+             + sizeof(istr_hash_t)
+ #endif
+             ) * new_alloc;
+ 
+         istr_pool_t *pool = (istr_pool_t *)PLAT_MALLOC(pool_size);
+         if (!pool) {
+             pool_state.istr_last_chunk = NULL;
+             EXIT();
+             return ISTRnull;
          }
-         #if ISTR_BYTES_IN_HASH
-         pool->hashes = (qstr_hash_t *)(pool->qstrs + new_alloc);
-         pool->lengths = (qstr_len_t *)(pool->hashes + new_alloc);
-         #else
-         pool->lengths = (qstr_len_t *)(pool->qstrs + new_alloc);
-         #endif
-         pool->prev = (pool_head);
-         pool->total_prev_len = (pool_head)->total_prev_len + (pool_head)->len;
+ 
+ #if BYTES_IN_HASH
+         pool->hashes = (istr_hash_t *)(pool->istrs + new_alloc);
+         pool->lengths = (istr_len_t *)(pool->hashes + new_alloc);
+ #else
+         pool->lengths = (istr_len_t *)(pool->istrs + new_alloc);
+ #endif
+ 
+         pool->prev = pool_head;
+         pool->total_prev_len = pool_head->total_prev_len + pool_head->len;
          pool->alloc = new_alloc;
          pool->len = 0;
+         pool->is_sorted = false;
+ 
          pool_head = pool;
-         DEBUG_printf("QSTR: allocate new pool of size %d\n", (pool_head)->alloc);
+         DEBUG_printf("ISTR: allocated new pool with %zu entries\n", new_alloc);
      }
  
-     // add the new qstr
      size_t at = pool_head->len;
-     #if ISTR_BYTES_IN_HASH
+ #if BYTES_IN_HASH
      pool_head->hashes[at] = hash;
-     #endif
+ #endif
      pool_head->lengths[at] = len;
-     pool_head->qstrs[at] = q_ptr;
+     pool_head->istrs[at] = q_ptr;
      pool_head->len++;
  
-     // return id for the newly-added qstr
+     EXIT();
      return pool_head->total_prev_len + at;
  }
  
- qstr qstr_find_strn(const char *str, size_t str_len) {
-     if (str_len == 0) {
-         // strncmp behaviour is undefined for str==NULL.
-         return ISTR_;
-     }
+ istr istr_find_strn(const char *str, size_t len) {
+     if (len == 0) return ISTRnull;
  
-     #if ISTR_BYTES_IN_HASH
-     // work out hash of str
-     size_t str_hash = qstr_compute_hash((const byte *)str, str_len);
-     #endif
+ #if BYTES_IN_HASH
+     size_t str_hash = istr_compute_hash((const byte *)str, len);
+ #endif
  
-     // search pools for the data
-     for (const qstr_pool_t *pool = pool_head; pool != NULL; pool = pool->prev) {
-         size_t low = 0;
-         size_t high = pool->len - 1;
- 
-         // binary search inside the pool
+     for (const istr_pool_t *pool = pool_head; pool; pool = pool->prev) {
+         size_t low = 0, high = pool->len - 1;
+         
+         // bsearch for sorted pools
          if (pool->is_sorted) {
              while (high - low > 1) {
                  size_t mid = (low + high) / 2;
-                 int cmp = strncmp(str, pool->qstrs[mid], str_len);
-                 if (cmp <= 0) {
-                     high = mid;
-                 } else {
-                     low = mid;
-                 }
+                 int cmp = strncmp(str, pool->istrs[mid], len);
+                 if (cmp <= 0) high = mid; else low = mid;
              }
          }
  
-         // sequential search for the remaining strings
-         for (size_t at = low; at < high + 1; at++) {
+         // lsearch for remaining string
+         for (size_t at = low; at <= high; ++at) {
              if (
-                 #if ISTR_BYTES_IN_HASH
+ #if BYTES_IN_HASH
                  pool->hashes[at] == str_hash &&
-                 #endif
-                 pool->lengths[at] == str_len
-                 && memcmp(pool->qstrs[at], str, str_len) == 0) {
+ #endif
+                 pool->lengths[at] == len &&
+                 memcmp(pool->istrs[at], str, len) == 0) {
                  return pool->total_prev_len + at;
              }
          }
      }
  
-     // not found; return null qstr
      return ISTRnull;
  }
  
- qstr qstr_from_str(const char *str) {
-     return qstr_from_strn(str, strlen(str));
+ istr istr_from_str(const char *str) {
+     return istr_from_strn(str, strlen(str));
  }
  
- static qstr qstr_from_strn_helper(const char *str, size_t len, bool data_is_static) {
-     ISTR_ENTER();
-     qstr q = qstr_find_strn(str, len);
-     if (q == 0) {
-         // qstr does not exist in interned pool so need to add it
+ static istr istr_from_strn_helper(const char *str, size_t len, bool data_is_static) {
+     ENTER();
  
-         // check that len is not too big
-         if (len >= (1 << (8 * ISTR_BYTES_IN_LEN))) {
-             ISTR_EXIT();
+     istr q = istr_find_strn(str, len);
+     if (q != ISTRnull) {
+         EXIT();
+         return q;
+     }
+ 
+     if (len >= (1 << (8 * BYTES_IN_LEN))) {
+         EXIT();
+         return ISTRnull;
+     }
+ 
+     if (data_is_static) {
+         // string persistence is guranteed, no alloc needed.
+         assert(str[len] == '\0');
+         q = istr_add(len, str);
+         EXIT();
+         return q;
+     }
+ 
+     size_t n_bytes = len + 1;
+ 
+     //try to fit string in prealloced block 
+     //if we are short of some bytes, expand the block
+     //if block expansion fails, shrink the block to fit existing entries
+     if (pool_state.istr_last_chunk && pool_state.istr_last_used + n_bytes > pool_state.istr_last_alloc) {
+         char *new_chunk = PLAT_REALLOC(pool_state.istr_last_chunk, pool_state.istr_last_alloc + n_bytes);
+         if (!new_chunk) {
+             (void)PLAT_REALLOC(pool_state.istr_last_chunk, pool_state.istr_last_alloc);
+             pool_state.istr_last_chunk = NULL;
+         } else {
+             pool_state.istr_last_chunk = new_chunk;
+             pool_state.istr_last_alloc += n_bytes;
+         }
+     }
+ 
+     if (!pool_state.istr_last_chunk) {
+         size_t alloc_size = n_bytes > ALLOC_ENTRIES_INIT ? n_bytes : ALLOC_ENTRIES_INIT;
+         pool_state.istr_last_chunk = (char *)PLAT_MALLOC(alloc_size);
+         if (!pool_state.istr_last_chunk) {
+             EXIT();
              return ISTRnull;
          }
- 
-         if (data_is_static) {
-             // Given string data will be forever available so use it directly.
-             assert(str[len] == '\0');
-             goto add;
-         }
- 
-         // compute number of bytes needed to intern this string
-         size_t n_bytes = len + 1;
- 
-         if (pool_state.qstr_last_chunk != NULL && pool_state.qstr_last_used + n_bytes > pool_state.qstr_last_alloc) {   
-             // not enough room at end of previously interned string so try to grow
-             char *new_p = ISTR_PLAT_REALLOC(pool_state.qstr_last_chunk, pool_state.qstr_last_alloc + n_bytes);
-             if (new_p == NULL) {
-                 // could not grow existing memory; shrink it to fit previous
-                 ISTR_PLAT_REALLOC(pool_state.qstr_last_chunk, pool_state.qstr_last_alloc);
-                 pool_state.qstr_last_chunk = NULL; 
-             } else {
-                 // could grow existing memory
-                 pool_state.qstr_last_alloc +=n_bytes; 
-             }
-         }
- 
-         if (pool_state.qstr_last_chunk == NULL) {   
-             // no existing memory for the string to be interned so allocate a new chunk
-             size_t al = n_bytes;
-             if (al < ISTR_ALLOC_ENTRIES_INIT) {
-                 al = ISTR_ALLOC_ENTRIES_INIT;
-             }
-             pool_state.qstr_last_chunk = (char*)ISTR_PLAT_MALLOC(al);
-             if (pool_state.qstr_last_chunk == NULL) {
-                 // failed to allocate a large chunk so try with exact size
-                 pool_state.qstr_last_chunk = (char*)ISTR_PLAT_MALLOC(n_bytes);
-                 if (pool_state.qstr_last_chunk == NULL) {
-                     ISTR_EXIT();
-                     return ISTRnull;
-                 }
-                 al = n_bytes;
-             }
-             pool_state.qstr_last_alloc = al;
-             pool_state.qstr_last_used = 0;
-         }
- 
-         // allocate memory from the chunk for this new interned string's data
-         char *q_ptr = pool_state.qstr_last_chunk + pool_state.qstr_last_used;
-         pool_state.qstr_last_used += n_bytes;
- 
-         // store the interned strings' data
-         memcpy(q_ptr, str, len);
-         q_ptr[len] = '\0';
-         str = q_ptr;
- 
-     add:
-         q = qstr_add(len, str);
+         pool_state.istr_last_alloc = alloc_size;
+         pool_state.istr_last_used = 0;
      }
-     ISTR_EXIT();
+ 
+     char *q_ptr = pool_state.istr_last_chunk + pool_state.istr_last_used;
+     memcpy(q_ptr, str, len);
+     q_ptr[len] = '\0';
+     pool_state.istr_last_used += n_bytes;
+ 
+     q = istr_add(len, q_ptr);
+     EXIT();
      return q;
  }
  
- qstr qstr_from_strn(const char *str, size_t len) {
-     return qstr_from_strn_helper(str, len, false);
+ istr istr_from_strn(const char *str, size_t len) {
+     return istr_from_strn_helper(str, len, false);
  }
  
-
- // Create a new qstr that can forever reference the given string data.
- qstr qstr_from_strn_static(const char *str, size_t len) {
-     return qstr_from_strn_helper(str, len, true);
+ istr istr_from_strn_static(const char *str, size_t len) {
+     return istr_from_strn_helper(str, len, true);
  }
-
  
- size_t qstr_hash(qstr q) {
-     const qstr_pool_t *pool = find_qstr(&q);
-     #if ISTR_BYTES_IN_HASH
+ size_t istr_hash(istr q) {
+     const istr_pool_t *pool = find_istr(&q);
+ #if BYTES_IN_HASH
      return pool->hashes[q];
-     #else
-     return qstr_compute_hash((byte *)pool->qstrs[q], pool->lengths[q]);
-     #endif
+ #else
+     return istr_compute_hash((const byte *)pool->istrs[q], pool->lengths[q]);
+ #endif
  }
  
- size_t qstr_len(qstr q) {
-     const qstr_pool_t *pool = find_qstr(&q);
+ size_t istr_len(istr q) {
+     const istr_pool_t *pool = find_istr(&q);
      return pool->lengths[q];
  }
  
- const char *qstr_str(qstr q) {
-     const qstr_pool_t *pool = find_qstr(&q);
-     return pool->qstrs[q];
+ const char *istr_str(istr q) {
+     const istr_pool_t *pool = find_istr(&q);
+     return pool->istrs[q];
  }
  
- const byte *qstr_data(qstr q, size_t *len) {
-     const qstr_pool_t *pool = find_qstr(&q);
+ const byte *istr_data(istr q, size_t *len) {
+     const istr_pool_t *pool = find_istr(&q);
      *len = pool->lengths[q];
-     return (byte *)pool->qstrs[q];
+     return (const byte *)pool->istrs[q];
  }
+ 
 
- #if ISTR_ENABLE_DEBUG
- void qstr_pool_info(size_t *n_pool, size_t *n_qstr, size_t *n_str_data_bytes, size_t *n_total_bytes) {
-     ISTR_ENTER();
+ #if ENABLE_DEBUG
+ void istr_pool_info(size_t *n_pool, size_t *n_istr, size_t *n_str_data_bytes, size_t *n_total_bytes) {
+     ENTER();
      *n_pool = 0;
-     *n_qstr = 0;
+     *n_istr = 0;
      *n_str_data_bytes = 0;
      *n_total_bytes = 0;
-     for (const qstr_pool_t *pool = pool_head; pool != NULL && pool != &CONST_POOL; pool = pool->prev) {
+     for (const istr_pool_t *pool = pool_head; pool != NULL && pool != &CONST_POOL; pool = pool->prev) {
          *n_pool += 1;
-         *n_qstr += pool->len;
-         for (qstr_len_t *l = pool->lengths, *l_top = pool->lengths + pool->len; l < l_top; l++) {
+         *n_istr += pool->len;
+         for (istr_len_t *l = pool->lengths, *l_top = pool->lengths + pool->len; l < l_top; l++) {
              *n_str_data_bytes += *l + 1;
          }
-         *n_total_bytes += sizeof(qstr_pool_t)
+         *n_total_bytes += sizeof(istr_pool_t)
              + (sizeof(const char *)
-                 #if ISTR_BYTES_IN_HASH
-                 + sizeof(qstr_hash_t)
+                 #if BYTES_IN_HASH
+                 + sizeof(istr_hash_t)
                  #endif
-                 + sizeof(qstr_len_t)) * pool->alloc;
+                 + sizeof(istr_len_t)) * pool->alloc;
      }
      *n_total_bytes += *n_str_data_bytes;
-     ISTR_EXIT();
+     EXIT();
  }
  
- void qstr_dump_data(void) {
-     ISTR_ENTER();
-     for (const qstr_pool_t *pool = pool_head; pool != NULL && pool != &CONST_POOL; pool = pool->prev) {
-         for (const char *const *q = pool->qstrs, *const *q_top = pool->qstrs + pool->len; q < q_top; q++) {
-             ISTR_PLAT_PRINTF("Q(%s)\n", *q);
+ void istr_dump_data(void) {
+     ENTER();
+     for (const istr_pool_t *pool = pool_head; pool != NULL && pool != &CONST_POOL; pool = pool->prev) {
+         for (const char *const *q = pool->istrs, *const *q_top = pool->istrs + pool->len; q < q_top; q++) {
+             PLAT_PRINTF("Q(%s)\n", *q);
          }
      }
-     ISTR_EXIT();
+     EXIT();
  }
  #endif
  
- #if ISTR_ROM_TEXT_COMPRESSION
+ #if ROM_TEXT_COMPRESSION
  
- #ifdef NO_QSTR
+ #ifdef NO_ISTR
  
- // If NO_QSTR is set, it means we're doing QSTR extraction.
+ // If NO_ISTR is set, it means we're doing ISTR extraction.
  // So we won't yet have "genhdr/compressed.data.h"
  
  #else
@@ -383,7 +344,7 @@ const qstr_pool_t istr_const_pool_static_0 = {
  #undef MP_COMPRESSED_DATA
  #undef MP_MATCH_COMPRESSED
  
- #endif // NO_QSTR
+ #endif // NO_ISTR
  
  // This implements the "common word" compression scheme (see makecompresseddata.py) where the most
  // common 128 words in error messages are replaced by their index into the list of common words.
@@ -440,4 +401,4 @@ const qstr_pool_t istr_const_pool_static_0 = {
      *dst = 0;
  }
  
- #endif // ISTR_ROM_TEXT_COMPRESSION
+ #endif // ROM_TEXT_COMPRESSION
