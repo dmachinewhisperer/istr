@@ -1,6 +1,6 @@
 """
 This script processes the output from the C preprocessor and extracts
-MP_QSTR_* macros and MP_COMPRESSED_ROM_TEXT macros.
+ISTR_* macros and ISTR_COMPRESSED_ROM_TEXT macros.
 
 This script works with Python 2.6, 2.7, 3.3 and 3.4.
 """
@@ -15,10 +15,10 @@ import sys
 import multiprocessing, multiprocessing.dummy
 
 
-# Extract MP_QSTR_FOO macros.
-_MODE_QSTR = "qstr"
+#ISTR_FOO macros.
+_MODE_ISTR = "istr"
 
-# Extract MP_COMPRESSED_ROM_TEXT("") macros.  (Which come from MP_ERROR_TEXT)
+# ISTR_COMPRESSED_ROM_TEXT("") macros. 
 _MODE_COMPRESS = "compress"
 
 
@@ -95,10 +95,10 @@ def process_file(f):
     # Match gcc-like output (# n "file") and msvc-like output (#line n "file")
     re_line = re.compile(r"^#(?:line)?\s+\d+\s\"([^\"]+)\"")
     
-    if args.mode == _MODE_QSTR:
-        re_match = re.compile(r"MP_QSTR_[_a-zA-Z0-9]+")
+    if args.mode == _MODE_ISTR:
+        re_match = re.compile(r"ISTR_[_a-zA-Z0-9]+")
     elif args.mode == _MODE_COMPRESS:
-        re_match = re.compile(r'MP_COMPRESSED_ROM_TEXT\("([^"]*)"\)')
+        re_match = re.compile(r'ISTR_COMPRESSED_ROM_TEXT\("([^"]*)"\)')
     else:
         raise ValueError("Invalid mode: {}".format(args.mode))
     
@@ -123,8 +123,8 @@ def process_file(f):
         
         # Extract matches based on mode
         for match in re_match.findall(line):
-            if args.mode == _MODE_QSTR:
-                name = match.replace("MP_QSTR_", "")
+            if args.mode == _MODE_ISTR:
+                name = match.replace("ISTR_", "")
                 output.append("Q(" + name + ")")
             elif args.mode == _MODE_COMPRESS:
                 output.append(match)
@@ -162,7 +162,7 @@ def cat_together():
     except IOError:
         pass
     
-    mode_full = "QSTR" if args.mode == _MODE_QSTR else "Compressed data"
+    mode_full = "ISTR" if args.mode == _MODE_ISTR else "Compressed data"
     
     if old_hash != new_hash or not os.path.exists(args.output_file):
         print(mode_full, "updated")
@@ -175,20 +175,14 @@ def cat_together():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 6:
-        print("usage: %s command mode input_filename output_dir output_file" % sys.argv[0])
-        print("commands: pp, split, cat")
-        print("modes: qstr, compress")
-        sys.exit(2)
+    # Handle preprocessing command first
+    if len(sys.argv) > 1 and sys.argv[1] == "pp":
+        class Args:
+            pass
 
-    class Args:
-        pass
+        args = Args()
+        args.command = sys.argv[1]
 
-    args = Args()
-    args.command = sys.argv[1]
-
-    # Handle preprocessing command
-    if args.command == "pp":
         named_args = {
             s: []
             for s in [
@@ -224,14 +218,26 @@ if __name__ == "__main__":
 
         sys.exit(0)
 
-    # Handle other commands
+    # Handle other commands - adjust argument count check
+    min_args = 5  # command, mode, input_filename, output_dir
+    if len(sys.argv) < min_args:
+        print("usage: %s command mode input_filename output_dir [output_file]" % sys.argv[0])
+        print("commands: pp, split, cat")
+        print("modes: istr, compress")
+        sys.exit(2)
+
+    class Args:
+        pass
+
+    args = Args()
+    args.command = sys.argv[1]
     args.mode = sys.argv[2]
     args.input_filename = sys.argv[3]  # Unused for command=cat
     args.output_dir = sys.argv[4]
-    args.output_file = None if len(sys.argv) == 5 else sys.argv[5]  # Unused for command=split
+    args.output_file = None if len(sys.argv) <= 5 else sys.argv[5]  # Optional for split, required for cat
 
-    if args.mode not in (_MODE_QSTR, _MODE_COMPRESS):
-        print("error: mode %s unrecognised. Valid modes: qstr, compress" % args.mode)
+    if args.mode not in (_MODE_ISTR, _MODE_COMPRESS):
+        print("error: mode %s unrecognised. Valid modes: istr, compress" % args.mode)
         sys.exit(2)
 
     try:
