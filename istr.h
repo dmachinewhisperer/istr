@@ -26,9 +26,9 @@
 // First entry is ISTRnull = 0
 enum {
 #ifndef NO_ISTR
-    #define QDEF(id, hash, len, str) id,
+    #define ISTRDEF(id, hash, len, str) id,
     #include "istrdefs.generated.h"
-    #undef QDEF
+    #undef ISTRDEF
 #endif
 
     ISTRnumber_of_static,   //not ISTR_ to avoid clashes with user defined literals

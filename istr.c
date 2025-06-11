@@ -53,18 +53,18 @@
  #if BYTES_IN_HASH
  const istr_hash_t istr_const_hashes_static_0[] = {
  #ifndef NO_ISTR
-     #define QDEF(id, hash, len, str) hash,
+     #define ISTRDEF(id, hash, len, str) hash,
      #include "istrdefs.generated.h"
-     #undef QDEF
+     #undef ISTRDEF
  #endif
  };
  #endif
  
  const istr_len_t istr_const_lens_static_0[] = {
  #ifndef NO_ISTR
-     #define QDEF(id, hash, len, str) len,
+     #define ISTRDEF(id, hash, len, str) len,
      #include "istrdefs.generated.h"
-     #undef QDEF
+     #undef ISTRDEF
  #endif
  };
  
@@ -80,9 +80,9 @@
      .lengths = (istr_len_t *)istr_const_lens_static_0,
      .istrs = {
  #ifndef NO_ISTR
-         #define QDEF(id, hash, len, str) str,
+         #define ISTRDEF(id, hash, len, str) str,
          #include "istrdefs.generated.h"
-         #undef QDEF
+         #undef ISTRDEF
  #endif
      },
  };
