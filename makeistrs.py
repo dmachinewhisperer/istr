@@ -3,7 +3,8 @@
 ISTR Processing Pipeline - Glue script to run the complete istr generation pipeline.
 
 Usage:
-    python istr_pipeline.py <build_dir> <output_dir> <sources_list> [additional_istrs]
+    export include paths if any: export ISTR_CFLAGS="-Ipath1 -Ipath2"
+    run: python istr_pipeline.py <build_dir> <output_dir> <sources_list> [additional_istrs]
 """
 
 import os
@@ -87,12 +88,17 @@ def main():
 
     ensure_directory(istr_split_dir)
 
+    cflags_env = os.environ.get("ISTR_CFLAGS", "")
+    cflags_list = cflags_env.split() if cflags_env else []
+
     preprocess_cmd = [
-        "python", makeistrdefs_script, "pp", "pp", "gcc", "-E", "-dD", "-I.",
+        "python", makeistrdefs_script, "pp", "pp", "gcc", "-E", "-dD"
+    ] + cflags_list + [
         "output", preprocessed_file,
         "cflags",
         "sources"
     ] + sources
+
     run_command(preprocess_cmd, "Preprocessing source files")
 
     split_cmd = [
