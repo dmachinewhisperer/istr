@@ -96,7 +96,7 @@
      pool_state.istr_last_chunk = NULL;
  }
  
- static const istr_pool_t *find_istr(istr *q) {
+ static const istr_pool_t *find_istr(istr_t *q) {
      const istr_pool_t *pool = pool_head;
      while (*q < pool->total_prev_len) {
          pool = pool->prev;
@@ -106,7 +106,7 @@
      return pool;
  }
  
- static istr istr_add(size_t len, const char *q_ptr) {
+ static istr_t istr_add(size_t len, const char *q_ptr) {
      ENTER();
  
  #if BYTES_IN_HASH
@@ -161,7 +161,7 @@
      return pool_head->total_prev_len + at;
  }
  
- istr istr_find_strn(const char *str, size_t len) {
+ istr_t istr_find_strn(const char *str, size_t len) {
      if (len == 0) return ISTRnull;
  
  #if BYTES_IN_HASH
@@ -196,14 +196,14 @@
      return ISTRnull;
  }
  
- istr istr_from_str(const char *str) {
+ istr_t istr_from_str(const char *str) {
      return istr_from_strn(str, strlen(str));
  }
  
- static istr istr_from_strn_helper(const char *str, size_t len, bool data_is_static) {
+ static istr_t istr_from_strn_helper(const char *str, size_t len, bool data_is_static) {
      ENTER();
  
-     istr q = istr_find_strn(str, len);
+     istr_t q = istr_find_strn(str, len);
      if (q != ISTRnull) {
          EXIT();
          return q;
@@ -259,15 +259,15 @@
      return q;
  }
  
- istr istr_from_strn(const char *str, size_t len) {
+ istr_t istr_from_strn(const char *str, size_t len) {
      return istr_from_strn_helper(str, len, false);
  }
  
- istr istr_from_strn_static(const char *str, size_t len) {
+ istr_t istr_from_strn_static(const char *str, size_t len) {
      return istr_from_strn_helper(str, len, true);
  }
  
- size_t istr_hash(istr q) {
+ size_t istr_hash(istr_t q) {
      const istr_pool_t *pool = find_istr(&q);
  #if BYTES_IN_HASH
      return pool->hashes[q];
@@ -276,17 +276,21 @@
  #endif
  }
  
- size_t istr_len(istr q) {
+ size_t istr_len(istr_t q) {
      const istr_pool_t *pool = find_istr(&q);
      return pool->lengths[q];
  }
  
- const char *istr_str(istr q) {
+ const char *istr(istr_t q) {
      const istr_pool_t *pool = find_istr(&q);
      return pool->istrs[q];
  }
+
+ const char *istr_str(istr_t q){
+    return istr(q);
+ }
  
- const byte *istr_data(istr q, size_t *len) {
+ const byte *istr_data(istr_t q, size_t *len) {
      const istr_pool_t *pool = find_istr(&q);
      *len = pool->lengths[q];
      return (const byte *)pool->istrs[q];

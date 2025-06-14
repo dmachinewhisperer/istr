@@ -37,7 +37,7 @@ enum {
     ISTRnumber_of  // Final count of ISTRs
 };
 
-typedef size_t   istr;
+typedef size_t   istr_t;
 typedef uint8_t  byte;
 typedef uint16_t istr_short_t;
 
@@ -79,15 +79,16 @@ extern istr_pool_t *pool_head;
 #define TOTAL() ((pool_head)->total_prev_len + (pool_head)->len)
 
 void   istr_init(void);
-istr   istr_from_str(const char *str);
-istr   istr_from_strn(const char *str, size_t len);
-istr   istr_find_strn(const char *str, size_t str_len);  // Returns ISTRnull if not found
-istr   istr_from_strn_static(const char *str, size_t len);
+istr_t   istr_from_str(const char *str);
+istr_t   istr_from_strn(const char *str, size_t len);
+istr_t   istr_find_strn(const char *str, size_t str_len);  // Returns ISTRnull if not found
+istr_t   istr_from_strn_static(const char *str, size_t len);
 
-const char *istr_str(istr q);
-const byte *istr_data(istr q, size_t *len);
-size_t      istr_len(istr q);
-size_t      istr_hash(istr q);
+const char *istr(istr_t q);
+const char *istr_str(istr_t q); //wraps istr_t() to maintain original api
+const byte *istr_data(istr_t q, size_t *len);
+size_t      istr_len(istr_t q);
+size_t      istr_hash(istr_t q);
 
 #if ENABLE_DEBUG
 void istr_pool_info(size_t *n_pool, size_t *n_istr, size_t *n_str_data_bytes, size_t *n_total_bytes);
