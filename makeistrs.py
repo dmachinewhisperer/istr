@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 ISTR Processing Pipeline - Glue script to run the complete istr generation pipeline.
-
+works with python3
 Usage:
     export include paths if any: export ISTR_CFLAGS="-Ipath1 -Ipath2"
-    run: python istr_pipeline.py <build_dir> <output_dir> <sources_list> [additional_istrs]
+    run: python3 istr_pipeline.py <build_dir> <output_dir> <sources_list> [additional_istrs]
 """
 
 import os
@@ -92,7 +92,7 @@ def main():
     cflags_list = cflags_env.split() if cflags_env else []
 
     preprocess_cmd = [
-        "python", makeistrdefs_script, "pp", "pp", "gcc", "-E", "-dD"
+        "python3", makeistrdefs_script, "pp", "pp", "gcc", "-E", "-dD"
     ] + cflags_list + [
         "output", preprocessed_file,
         "cflags",
@@ -102,13 +102,13 @@ def main():
     run_command(preprocess_cmd, "Preprocessing source files")
 
     split_cmd = [
-        "python", makeistrdefs_script, "split", "istr",
+        "python3", makeistrdefs_script, "split", "istr",
         preprocessed_file, istr_split_dir
     ]
     run_command(split_cmd, "Extracting ISTR macros")
 
     cat_cmd = [
-        "python", makeistrdefs_script, "cat", "istr",
+        "python3", makeistrdefs_script, "cat", "istr",
         "unused", istr_split_dir, combined_istrs_file
     ]
     run_command(cat_cmd, "Combining ISTR files")
@@ -167,7 +167,7 @@ def main():
 
     try:
         result = subprocess.run(
-            ["python", makeistrdata_script, combined_istrs_file],
+            ["python3", makeistrdata_script, combined_istrs_file],
             check=True, capture_output=True, text=True
         )
         with open(final_output_file, 'w') as f:

@@ -3,26 +3,30 @@
 Process raw istr file and output istr data with length, hash and data bytes.
 All istr definitions now come from input files only.
 
-This script works with Python 2.6, 2.7, 3.3 and 3.4.
+This script works with Python 3.x.
 """
 
 from __future__ import print_function
 
 import re
 import sys
+from html.entities import codepoint2name
 
-# Python 2/3 compatibility:
-#   - iterating through bytes is different
-#   - codepoint2name lives in a different module
-import platform
 
-if platform.python_version_tuple()[0] == "2":
-    bytes_cons = lambda val, enc=None: bytearray(val)
-    from htmlentitydefs import codepoint2name
-elif platform.python_version_tuple()[0] == "3":
-    bytes_cons = bytes
-    from html.entities import codepoint2name
-# end compatibility code
+bytes_cons = bytes
+
+# # Python 2/3 compatibility:
+# #   - iterating through bytes is different
+# #   - codepoint2name lives in a different module
+# import platform
+
+# if platform.python_version_tuple()[0] == "2":
+#     bytes_cons = lambda val, enc=None: bytearray(val)
+#     from htmlentitydefs import codepoint2name
+# elif platform.python_version_tuple()[0] == "3":
+#     bytes_cons = bytes
+#     from html.entities import codepoint2name
+# # end compatibility code
 
 codepoint2name[ord("-")] = "hyphen"
 
@@ -147,6 +151,19 @@ def make_bytes(cfg_bytes_len, cfg_bytes_hash, istr):
     return '%d, %d, "%s"' % (qhash, qlen, qdata)
 
 
+name2codepoint = {v: k for k, v in codepoint2name.items()}
+
+def reverse_escape(ident):
+    def repl(m):
+        name = m.group(1)
+        try:
+            return chr(name2codepoint[name])
+        except KeyError:
+            # fallback if name not in known map
+            return "_%s_" % name
+    return re.sub(r"_(\w+)_", repl, ident)
+
+
 def print_istr_data(qcfgs, istrs):
     # get config variables
     cfg_bytes_len = int(qcfgs["BYTES_IN_LEN"])
@@ -161,13 +178,15 @@ def print_istr_data(qcfgs, istrs):
 
     # add all istrs sorted by their string value for consistent output
     for ident, istr in sorted(istrs.values(), key=lambda x: x[1]):
-        qbytes = make_bytes(cfg_bytes_len, cfg_bytes_hash, istr)
+        decoded_istr = reverse_escape(istr)
+        qbytes = make_bytes(cfg_bytes_len, cfg_bytes_hash, decoded_istr)
         print("ISTRDEF(ISTR_%s, %s)" % (ident, qbytes))
+
 
 
 def do_work(infiles):
     if not infiles:
-        print("Usage: python makeistrdata.py <input_files...>")
+        print("Usage: python3 makeistrdata.py <input_files...>")
         print("Input files should contain Q(...) definitions and QCFG(...) config lines")
         sys.exit(1)
     
